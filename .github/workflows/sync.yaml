@@ -1,35 +1,56 @@
+name: SCIM Sync
+
 on:
   push:
   schedule:
-  - cron: "0 * * * *"
+    - cron: '0 * * * *'
 
 permissions:
   id-token: write
   contents: read
+
+# These values can also be stored as GitHub Actions variables or secrets.
+# They are declared inline for this PoC to keep the workflow easy to read.
+env:
+  ENTRA_TENANT_ID: '5f4eb598-671f-4066-8830-7ec82393defd'
+  ENTRA_CLIENT_ID: 'cd68d955-3ae8-4877-b437-4e768f23b524'
+  PROVISIONING_ENDPOINT: 'https://graph.microsoft.com/v1.0/servicePrincipals/43a7fc53-b6c2-403a-937a-65020143ceab/synchronization/jobs/API2AAD.5f4eb598671f406688307ec82393defd.e3f2184f-a780-449b-b77f-98962523fc43/bulkUpload'
+  HR_DATA_PATH: 'HRData.csv'
+  SCIM_BULK_REQUEST_PATH: 'SCIMBulkRequest.json'
 
 jobs:
   scim_sync:
     runs-on: ubuntu-latest
     name: SCIM Sync
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Azure AD Workload Identity Federation
         uses: nicolonsky/WIF@v0.1.0
         with:
-          tenant_id: '5f4eb598-671f-4066-8830-7ec82393defd'
-          client_id: 'cd68d955-3ae8-4877-b437-4e768f23b524'
-      - name: Checkout Repo
-        uses: actions/checkout@v6
-      - name: Run Provisioning
-        run: |
-          Install-Module -Name Microsoft.Graph.Authentication -Force
-          Connect-MgGraph -AccessToken $($env:ACCESS_TOKEN | ConvertTo-SecureString -AsPlaintext -Force)  -NoWelcome 
-          # Convert HRData.csv to SCIMBulkRequest.json
-          ./ConvertTo-SCIMUser.ps1
-          # POST SCIM user envelope to Graph API for bulk upload
-          ./Invoke-POSTSCIMUser.ps1
+          tenant_id: ${{ env.ENTRA_TENANT_ID }}
+          client_id: ${{ env.ENTRA_CLIENT_ID }}
+
+      - name: Install Microsoft Graph module
         shell: pwsh
-      - uses: actions/upload-artifact@v6
+        run: Install-Module -Name 'Microsoft.Graph.Authentication' -Scope CurrentUser -Force
+
+      - name: Convert HR data to SCIM
+        shell: pwsh
+        run: ./ConvertTo-SCIMUser.ps1 -CsvPath $env:HR_DATA_PATH -OutputPath $env:SCIM_BULK_REQUEST_PATH
+
+      - name: Upload SCIM bulk request
+        shell: pwsh
+        run: |
+          Connect-MgGraph -AccessToken ($env:ACCESS_TOKEN | ConvertTo-SecureString -AsPlainText -Force) -NoWelcome
+          ./Invoke-POSTSCIMUser.ps1 `
+            -ProvisioningEndpoint $env:PROVISIONING_ENDPOINT `
+            -SCIMBulkRequestPath $env:SCIM_BULK_REQUEST_PATH
+
+      - name: Upload SCIM bulk request artifact
+        uses: actions/upload-artifact@v6
         with:
-          name: SCIMBulkRequest
-          path: SCIMBulkRequest.json
-       
+          name: 'SCIMBulkRequest'
+          path: ${{ env.SCIM_BULK_REQUEST_PATH }}
+

@@ -109,14 +109,30 @@ The generated subject must exactly match the token requested by GitHub. Wildcard
 
 ## 4. Configure this repository
 
-Replace the sample tenant-specific values before running the workflow:
+All environment-specific runtime settings are centralized in the workflow-level `env` block in `.github/workflows/sync.yaml`. Update these values before running the workflow:
 
-1. In `.github/workflows/sync.yaml`, replace:
-	- `tenant_id` with the **Directory (tenant) ID**.
-	- `client_id` with the GitHub Actions app's **Application (client) ID**.
-2. In `Invoke-POSTSCIMUser.ps1`, replace the entire `$endpoint` value with the **Provisioning API Endpoint** copied in step 1.
-3. In the local authentication block in `Invoke-POSTSCIMUser.ps1`, replace the sample `TenantId` with your tenant ID.
-4. Review the column mapping tables at the top of `ConvertTo-SCIMUser.ps1` and update them if the CSV headers differ.
+| GitHub Actions variable | Description |
+| --- | --- |
+| `ENTRA_TENANT_ID` | Microsoft Entra **Directory (tenant) ID**. |
+| `ENTRA_CLIENT_ID` | **Application (client) ID** of the GitHub Actions app registration. |
+| `PROVISIONING_ENDPOINT` | Complete **Provisioning API Endpoint** copied from the API-driven enterprise application. |
+| `HR_DATA_PATH` | Repository-relative path to the source HR CSV file. |
+| `SCIM_BULK_REQUEST_PATH` | Repository-relative path where the generated SCIM bulk request is written and then uploaded. |
+
+For this PoC, these values are declared inline to make the workflow easy to understand. They can instead be stored as GitHub Actions repository or environment variables and referenced with the `vars` context, or as Actions secrets and referenced with the `secrets` context.
+
+The workflow passes the configured paths to `ConvertTo-SCIMUser.ps1` and passes `PROVISIONING_ENDPOINT` plus `SCIM_BULK_REQUEST_PATH` explicitly to `Invoke-POSTSCIMUser.ps1`. No tenant-specific runtime value needs to be changed inside either script.
+
+CSV column-to-SCIM attribute mappings remain schema logic in `ConvertTo-SCIMUser.ps1`. Update its mapping tables only when the input CSV schema or desired SCIM payload changes.
+
+`Invoke-POSTSCIMUser.ps1` accepts these optional parameters:
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `ProvisioningEndpoint` | The sample repository's `/bulkUpload` endpoint | Complete Microsoft Graph provisioning endpoint to which the SCIM payload is submitted. |
+| `SCIMBulkRequestPath` | `SCIMBulkRequest.json` in the script directory | Path to the generated SCIM bulk request JSON file. |
+
+The script declares `#Requires -Modules Microsoft.Graph.Authentication`. Install the module before local execution; the supplied GitHub Actions workflow installs it automatically.
 
 The current workflow uses [`nicolonsky/WIF`](https://github.com/nicolonsky/WIF) to exchange the GitHub OIDC token for a Microsoft Graph access token. Pin third-party actions to a full commit SHA for production use.
 
@@ -145,9 +161,23 @@ The workflow uploads `SCIMBulkRequest.json` as an artifact. Remove that step for
 Local execution uses delegated authentication and prompts for an administrator account:
 
 ```powershell
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+
 pwsh ./ConvertTo-SCIMUser.ps1
-pwsh ./Invoke-POSTSCIMUser.ps1
+
+$provisioningEndpoint = 'https://graph.microsoft.com/v1.0/servicePrincipals/<PROVISIONING_APP_OBJECT_ID>/synchronization/jobs/<JOB_ID>/bulkUpload'
+pwsh ./Invoke-POSTSCIMUser.ps1 -ProvisioningEndpoint $provisioningEndpoint
 ```
+
+To upload a payload from another location, pass `-SCIMBulkRequestPath`:
+
+```powershell
+pwsh ./Invoke-POSTSCIMUser.ps1 `
+	-ProvisioningEndpoint $provisioningEndpoint `
+	-SCIMBulkRequestPath ./output/SCIMBulkRequest.json
+```
+
+Use `-WhatIf` to confirm the target endpoint without submitting the request.
 
 The signed-in account must be allowed to consent to and use the `SynchronizationData-User.Upload` delegated scope. GitHub Actions uses the application permission configured in step 3 instead.
 
