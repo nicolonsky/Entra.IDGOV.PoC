@@ -1,0 +1,35 @@
+on:
+  push:
+  schedule:
+  - cron: "0 * * * *"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  scim_sync:
+    runs-on: ubuntu-latest
+    name: SCIM Sync
+    steps:
+      - name: Azure AD Workload Identity Federation
+        uses: nicolonsky/WIF@v0.1.0
+        with:
+          tenant_id: '5f4eb598-671f-4066-8830-7ec82393defd'
+          client_id: 'cd68d955-3ae8-4877-b437-4e768f23b524'
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+      - name: Run Provisioning
+        run: |
+          Install-Module -Name Microsoft.Graph.Authentication -Force
+          Connect-MgGraph -AccessToken $($env:ACCESS_TOKEN | ConvertTo-SecureString -AsPlaintext -Force)  -NoWelcome 
+          # Convert HRData.csv to SCIMBulkRequest.json
+          ./ConvertTo-SCIMUser.ps1
+          # POST SCIM user envelope to Graph API for bulk upload
+          ./Invoke-POSTSCIMUser.ps1
+        shell: pwsh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: SCIMBulkRequest
+          path: SCIMBulkRequest.json
+       
