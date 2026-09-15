@@ -2,6 +2,40 @@
 
 A compact proof of concept that converts HR data from CSV into a SCIM bulk request and submits it to Microsoft Entra API-driven inbound provisioning from GitHub Actions.
 
+## Architecture overview
+
+This PoC implements a simple inbound provisioning pipeline from repository-hosted HR data into Microsoft Entra ID.
+
+```mermaid
+flowchart LR
+    A[HR source data<br/>HRData.csv in GitHub repository]
+    B[GitHub Actions workflow<br/>.github/workflows/sync.yaml]
+    C[Transform step<br/>ConvertTo-SCIMUser.ps1]
+    D[SCIM payload<br/>SCIMBulkRequest.json]
+    E[Authentication step<br/>GitHub OIDC + Entra app registration]
+    F[Upload step<br/>Invoke-POSTSCIMUser.ps1]
+    G[Microsoft Graph provisioning endpoint<br/>/synchronization/jobs/.../bulkUpload]
+    H[API-driven inbound provisioning app<br/>Scope + attribute mappings]
+    I[Microsoft Entra ID users]
+
+    A --> B
+    B --> C
+    C --> D
+    B --> E
+    D --> F
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+```
+
+1. HR records are maintained in `HRData.csv` in the repository.
+2. The GitHub Actions workflow runs on push, on schedule, or on demand.
+3. `ConvertTo-SCIMUser.ps1` transforms the CSV rows into a SCIM bulk request payload.
+4. GitHub OIDC is exchanged for a Microsoft Graph access token by the Entra app registration used by the workflow.
+5. `Invoke-POSTSCIMUser.ps1` uploads the SCIM payload to the provisioning job's `/bulkUpload` endpoint.
+6. The Microsoft Entra inbound provisioning app applies scope and attribute mappings to create or update users in Microsoft Entra ID.
+
 ## How it works
 
 1. `HRData.csv` supplies authoritative worker records.
